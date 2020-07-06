@@ -1,0 +1,175 @@
+service:
+  name: First-udagram-app
+
+plugins:
+  - serverless-webpack
+  #les 2 plugins ajoutés ici servent à faire la validation en utilisant les fchiers dans le modele.
+  #il faut installer ses plugin en utilisant les commandes npm install serverless-aws-documentation serverless-reqvalidator-plugin --save-dev
+  - serverless-reqvalidator-plugin
+  - serverless-aws-documentation
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+
+# ici on fournit les stages qui peuvent etre dev, prod etc... Ici dev est utilisé par defaut quand on ne fournit pas d'autres stages..
+#la region aussi peut etre forunie sinon on va déplyer dans la région par defaut us-east-1
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+
+#definition des variables d'environnements (nom de la table est fournit comme variable d'environnement)
+  environment:
+    GROUPS_TABLE: Groups-${self:provider.stage}
+    IMAGES_TABLE: Images-${self:provider.stage}
+    #variable d'environnement pour utilsier imageId comme Index de la table afin de faciliter les recherches
+    IMAGE_ID_INDEX: ImageIdIndex
+  
+  #il faut aussi donner les permissions iam qui vont permettre d'interagir avec la base de données Scan 
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        #iamrole pour recupérer la liste des groupes depuis DynamoDB
+        - dynamodb:Scan
+        #iamrole pour utiliser Post vers une base de données DynamoDB
+        - dynamodb:PutItem
+        #iamrole pour utiliser faire un getItem
+        - dynamodb:GetItem
+      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.GROUPS_TABLE}
+
+    - Effect: Allow 
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:Query
+      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}
+
+    - Effect: Allow
+      Action:
+        - dynamodb:Query
+      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}/index/${self:provider.environment.IMAGE_ID_INDEX}
+
+#custom est utilisé pour la validation des données avant l'envoi au serveur pour utiliser la fonction lambda
+custom:
+  documentation:
+    api:
+      info:
+        version: v1.0.0
+        title: Udagram API
+        description: Serverless application for images sharing
+    models:
+      - name: GroupRequest
+        contentType: application/json
+        schema: ${file(models/create-group-request.json)}
+      - name: ImageRequest
+        contentType: application/json
+        schema: ${file(models/create-image-request.json)}
+
+
+#Définition de la liste de toutes les fonctions
+
+# fonction pour recupérer la liste des groupes
+functions:
+  GetGroups:
+    handler: src/lambda/http/getGroups.handler
+    events:
+      - http:
+          method: get
+          path: groups
+          cors: true
+
+# fonction pour créer un groupe
+  CreateGroup:
+    handler: src/lambda/http/createGroup.handler
+    events:
+      - http:
+          method: post
+          path: groups
+          cors: true
+          reqValidatorName: RequestBodyValidator
+          documentation:
+            summary: Create a new group
+            description: Create a new group
+            requestModels:
+              'application/json': GroupRequest #the same name like custom models
+
+# fonction pour recupérer liste des images par group en passant en groups/1/images (c'est la liste des images du groupe 1)
+  GetImages:
+    handler: src/lambda/http/getImages.handler
+    events:
+      - http:
+          method: get
+          path: groups/{groupId}/images
+          cors: true
+
+  CreateImage:
+    handler: src/lambda/http/createImage.handler
+    events:
+      - http:
+          method: post
+          path: groups/{groupId}/images
+          cors: true
+          reqValidatorName: RequestBodyValidator
+          documentation:
+            summary: Create a new image
+            description: Create a new image
+            requestModels:
+              'application/json': ImageRequest #the same name like custom models
+
+# fonction pour recupérer une image
+  GetImage:
+    handler: src/lambda/http/getImage.handler
+    events:
+      - http:
+          method: get
+          path: images/{imageId}
+          cors: true
+
+#definition des tables GROUPS_TABLE et IMAGES_TABLEable 
+resources:
+  Resources:
+
+    GroupsDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.GROUPS_TABLE}
+
+
+    ImagesDynamoDBTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        AttributeDefinitions:
+          - AttributeName: groupId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+          - AttributeName: imageId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: groupId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.IMAGE_ID_INDEX} 
+            KeySchema:
+            - AttributeName: imageId
+              KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        BillingMode: PAY_PER_REQUEST
+        TableName: ${self:provider.environment.IMAGES_TABLE}
+    
+    RequestBodyValidator:
+      Type: AWS::ApiGateway::RequestValidator
+      Properties:
+        Name: 'request-body-validator'
+        RestApiId:
+          Ref: ApiGatewayRestApi
+        ValidateRequestBody: true
+        ValidateRequestParameters: false
