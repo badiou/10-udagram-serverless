@@ -106,7 +106,7 @@ functions:
           method: get
           path: groups/{groupId}/images
           cors: true
-  #fonction pour créer une image
+#fonction pour créer une image
   CreateImage:
     handler: src/lambda/http/createImage.handler
     events:
@@ -120,6 +120,10 @@ functions:
             description: Create a new image
             requestModels:
               'application/json': ImageRequest #the same name like custom models
+    
+# Nouvelle fonction pour la notification au S3 bucket
+  SendUploadNotifications:
+    handler: src/lambda/s3/sendNotifications.handler
 
 # fonction pour recupérer une image
   GetImage:
@@ -129,6 +133,7 @@ functions:
           method: get
           path: images/{imageId}
           cors: true
+
 
 #definition des tables GROUPS_TABLE et IMAGES_TABLEable 
 resources:
@@ -185,6 +190,11 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:provider.environment.IMAGES_S3_BUCKET}
+        # On cré ici un évenement au niveau du bucket qui va venir lancer la fonction lambda. ObjectCreated (ie au moment de la création de l'objet)
+        NotificationConfiguration:
+          LambdaConfigurations:
+          - Event: s3:ObjectCreated:* #
+            Function: !GetAtt SendUploadNotificationsLambdaFunction.Arn #
         CorsConfiguration:
           CorsRules:
             -
@@ -200,6 +210,18 @@ resources:
                 - HEAD
               MaxAge: 3000
 
+    #ici on donne des permissions au S3 bucket pour invoquer la fonction lambda          
+    SendUploadNotificationsPermission:
+      Type: AWS::Lambda::Permission
+      Properties:
+        FunctionName: !Ref SendUploadNotificationsLambdaFunction
+        Principal: s3.amazonaws.com
+        Action: lambda:InvokeFunction
+        SourceAccount: !Ref AWS::AccountId
+        SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}   
+    
+        
+    ############################
     BucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
