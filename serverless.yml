@@ -1,6 +1,5 @@
 service:
-  name: First-udagram-app
-
+  name: cloud-udagram-app
 plugins:
   - serverless-webpack
   #les 2 plugins ajoutés ici servent à faire la validation en utilisant les fchiers dans le modele.
@@ -23,6 +22,8 @@ provider:
     IMAGES_TABLE: Images-${self:provider.stage}
     #variable d'environnement pour utilsier imageId comme Index de la table afin de faciliter les recherches
     IMAGE_ID_INDEX: ImageIdIndex
+    IMAGES_S3_BUCKET: serverless-cloud-udagram-images-${self:provider.stage}
+    SIGNED_URL_EXPIRATION: 300
   
   #il faut aussi donner les permissions iam qui vont permettre d'interagir avec la base de données Scan 
   iamRoleStatements:
@@ -46,7 +47,13 @@ provider:
       Action:
         - dynamodb:Query
       Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.IMAGES_TABLE}/index/${self:provider.environment.IMAGE_ID_INDEX}
+    
 
+    - Effect: Allow 
+      Action:
+        - s3:PutObject
+        - s3:GetObject
+      Resource: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}/*'
 #custom est utilisé pour la validation des données avant l'envoi au serveur pour utiliser la fonction lambda
 custom:
   documentation:
@@ -99,7 +106,7 @@ functions:
           method: get
           path: groups/{groupId}/images
           cors: true
-
+  #fonction pour créer une image
   CreateImage:
     handler: src/lambda/http/createImage.handler
     events:
@@ -173,3 +180,36 @@ resources:
           Ref: ApiGatewayRestApi
         ValidateRequestBody: true
         ValidateRequestParameters: false
+
+    AttachmentsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.IMAGES_S3_BUCKET}
+        CorsConfiguration:
+          CorsRules:
+            -
+              AllowedOrigins:
+                - '*'
+              AllowedHeaders:
+                - '*'
+              AllowedMethods:
+                - GET
+                - PUT
+                - POST
+                - DELETE
+                - HEAD
+              MaxAge: 3000
+
+    BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        PolicyDocument:
+          Id: MyPolicy
+          Version: "2012-10-17"
+          Statement:
+            - Sid: PublicReadForGetBucketObjects
+              Effect: Allow
+              Principal: '*'
+              Action: 's3:GetObject'
+              Resource: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}/*'
+        Bucket: !Ref AttachmentsBucket
