@@ -190,7 +190,10 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:provider.environment.IMAGES_S3_BUCKET}
+
         # On cré ici un évenement au niveau du bucket qui va venir lancer la fonction lambda. ObjectCreated (ie au moment de la création de l'objet)
+        #il faut apres ça faire une WebSocket Notification qui permettra à la fonction lambda qui va envoyer une notifcation vrs l'API Gateway...
+        #Les lignes suivantes ne font pas du WebSocket
         NotificationConfiguration:
           LambdaConfigurations:
           - Event: s3:ObjectCreated:* #
