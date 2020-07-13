@@ -24,6 +24,8 @@ provider:
     IMAGE_ID_INDEX: ImageIdIndex
     IMAGES_S3_BUCKET: serverless-cloud-udagram-images-${self:provider.stage}
     SIGNED_URL_EXPIRATION: 300
+    CONNECTIONS_TABLE: Connections-${self:provider.stage}
+    # THUMBNAILS_S3_BUCKET: serverless-udagram-thumbnail-${self:provider.stage}
   
   #il faut aussi donner les permissions iam qui vont permettre d'interagir avec la base de données Scan 
   iamRoleStatements:
@@ -54,8 +56,18 @@ provider:
         - s3:PutObject
         - s3:GetObject
       Resource: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}/*'
+    
+    - Effect: Allow
+      Action:
+        - dynamodb:Scan
+        - dynamodb:PutItem
+        - dynamodb:DeleteItem
+      Resource: arn:aws:dynamodb:${opt:region, self:provider.region}:*:table/${self:provider.environment.CONNECTIONS_TABLE}
+
+    
 #custom est utilisé pour la validation des données avant l'envoi au serveur pour utiliser la fonction lambda
 custom:
+  topicName: imagesTopic-${self:provider.stage}
   documentation:
     api:
       info:
@@ -123,7 +135,48 @@ functions:
     
 # Nouvelle fonction pour la notification au S3 bucket
   SendUploadNotifications:
+    environment:
+      STAGE: ${self:provider.stage}
+      API_ID:
+        Ref: WebsocketsApi
     handler: src/lambda/s3/sendNotifications.handler
+    events:
+      - sns:
+          arn:
+            Fn::Join:
+              - ':'
+              - - arn:aws:sns
+                - Ref: AWS::Region
+                - Ref: AWS::AccountId
+                - ${self:custom.topicName}
+          topicName: ${self:custom.topicName}
+  #################################################################################
+
+
+  # ResizeImage:
+  #   handler: src/lambda/s3/resizeImage.handler
+  #   events:
+  #     - sns:
+  #         arn:
+  #           Fn::Join:
+  #             - ':'
+  #             - - arn:aws:sns
+  #               - Ref: AWS::Region
+  #               - Ref: AWS::AccountId
+  #               - ${self:custom.topicName}
+  #         topicName: ${self:custom.topicName}
+
+  ConnectHandler:
+    handler: src/lambda/websocket/connect.handler
+    events:
+      - websocket:
+          route: $connect
+
+  DisconnectHandler:
+    handler: src/lambda/websocket/disconnect.handler
+    events:
+      - websocket:
+          route: $disconnect
 
 # fonction pour recupérer une image
   GetImage:
@@ -188,13 +241,14 @@ resources:
 
     AttachmentsBucket:
       Type: AWS::S3::Bucket
+      DependsOn: SNSTopicPolicy
       Properties:
         BucketName: ${self:provider.environment.IMAGES_S3_BUCKET}
         # On cré ici un évenement au niveau du bucket qui va venir lancer la fonction lambda. ObjectCreated (ie au moment de la création de l'objet)
         NotificationConfiguration:
-          LambdaConfigurations:
-          - Event: s3:ObjectCreated:* #
-            Function: !GetAtt SendUploadNotificationsLambdaFunction.Arn #
+          TopicConfigurations:
+            - Event: s3:ObjectCreated:Put
+              Topic: !Ref ImagesTopic
         CorsConfiguration:
           CorsRules:
             -
@@ -218,10 +272,23 @@ resources:
         Principal: s3.amazonaws.com
         Action: lambda:InvokeFunction
         SourceAccount: !Ref AWS::AccountId
-        SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}   
-    
+        SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}
+
+    #Resize image
+    ResizeImage:
+      handler: src/lambda/s3/resizeImage.handler
+      events:
+        - sns:
+            arn:
+              Fn::Join:
+                - ':'
+                - - arn:aws:sns
+                  - Ref: AWS::Region
+                  - Ref: AWS::AccountId
+                  - ${self:custom.topicName}
+            topicName: ${self:custom.topicName}
         
-    ############################
+  ###########################################################
     BucketPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
@@ -235,3 +302,35 @@ resources:
               Action: 's3:GetObject'
               Resource: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}/*'
         Bucket: !Ref AttachmentsBucket
+
+    ########################################################
+    # this allow S3 to send event du Topic
+    SNSTopicPolicy:
+      Type: AWS::SNS::TopicPolicy
+      Properties:
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                AWS: "*"
+              Action: sns:Publish
+              Resource:
+                !Ref ImagesTopic
+              Condition:
+                ArnLike:
+                  AWS:SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}
+        Topics:
+          - !Ref ImagesTopic
+
+    # ThumbnailsBucket:
+    #   Type: AWS::S3::Bucket
+    #   Properties:
+    #     BucketName: ${self:provider.environment.THUMBNAILS_S3_BUCKET}
+
+
+    ImagesTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: Image bucket topic
+        TopicName: ${self:custom.topicName}
