@@ -25,7 +25,6 @@ provider:
     IMAGES_S3_BUCKET: serverless-cloud-udagram-images-${self:provider.stage}
     SIGNED_URL_EXPIRATION: 300
     CONNECTIONS_TABLE: Connections-${self:provider.stage}
-    # THUMBNAILS_S3_BUCKET: serverless-udagram-thumbnail-${self:provider.stage}
   
   #il faut aussi donner les permissions iam qui vont permettre d'interagir avec la base de données Scan 
   iamRoleStatements:
@@ -87,6 +86,11 @@ custom:
 
 # fonction pour recupérer la liste des groupes
 functions:
+  #Appel de la fonction lambda auth0Authorizer
+  Auth:
+    handler: src/lambda/auth/auth0Authorizer.handler
+
+
   GetGroups:
     handler: src/lambda/http/getGroups.handler
     events:
@@ -103,6 +107,8 @@ functions:
           method: post
           path: groups
           cors: true
+          # this allow to do Authorization by token
+          authorizer: Auth
           reqValidatorName: RequestBodyValidator
           documentation:
             summary: Create a new group
@@ -126,6 +132,8 @@ functions:
           method: post
           path: groups/{groupId}/images
           cors: true
+          # this allow to do Authorization by token
+          authorizer: Auth
           reqValidatorName: RequestBodyValidator
           documentation:
             summary: Create a new image
@@ -150,21 +158,7 @@ functions:
                 - Ref: AWS::AccountId
                 - ${self:custom.topicName}
           topicName: ${self:custom.topicName}
-  #################################################################################
 
-
-  # ResizeImage:
-  #   handler: src/lambda/s3/resizeImage.handler
-  #   events:
-  #     - sns:
-  #         arn:
-  #           Fn::Join:
-  #             - ':'
-  #             - - arn:aws:sns
-  #               - Ref: AWS::Region
-  #               - Ref: AWS::AccountId
-  #               - ${self:custom.topicName}
-  #         topicName: ${self:custom.topicName}
 
   ConnectHandler:
     handler: src/lambda/websocket/connect.handler
@@ -191,7 +185,18 @@ functions:
 #definition des tables GROUPS_TABLE et IMAGES_TABLEable 
 resources:
   Resources:
-
+    #ressource to make authorization
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+          gatewayresponse.header.Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
+        ResponseType: DEFAULT_4XX
+        RestApiId:
+          Ref: ApiGatewayRestApi
+    ####################################################""
     GroupsDynamoDBTable:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -272,21 +277,8 @@ resources:
         Principal: s3.amazonaws.com
         Action: lambda:InvokeFunction
         SourceAccount: !Ref AWS::AccountId
-        SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}
-
-    #Resize image
-    ResizeImage:
-      handler: src/lambda/s3/resizeImage.handler
-      events:
-        - sns:
-            arn:
-              Fn::Join:
-                - ':'
-                - - arn:aws:sns
-                  - Ref: AWS::Region
-                  - Ref: AWS::AccountId
-                  - ${self:custom.topicName}
-            topicName: ${self:custom.topicName}
+        SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}   
+    
         
   ###########################################################
     BucketPolicy:
@@ -302,7 +294,6 @@ resources:
               Action: 's3:GetObject'
               Resource: 'arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}/*'
         Bucket: !Ref AttachmentsBucket
-
     ########################################################
     # this allow S3 to send event du Topic
     SNSTopicPolicy:
@@ -322,11 +313,6 @@ resources:
                   AWS:SourceArn: arn:aws:s3:::${self:provider.environment.IMAGES_S3_BUCKET}
         Topics:
           - !Ref ImagesTopic
-
-    # ThumbnailsBucket:
-    #   Type: AWS::S3::Bucket
-    #   Properties:
-    #     BucketName: ${self:provider.environment.THUMBNAILS_S3_BUCKET}
 
 
     ImagesTopic:
