@@ -28,7 +28,7 @@ provider:
 
     #Cette variable est copiée depuis Auth0 au niveau de l'application qui a été créée (Client secret)
     #It's not a good idea to store the secret to app env variable. We can store it in SSM Parameter Store or AWS Secrets Manager
-    #AUTH_0_SECRET: 0nEMkiPP3MCrAtrfkAeTJnBIndVuHMvAjx4S_KbLW2LU519CRxDvGDkxY919W7JR
+    #AUTH_0_SECRET: 
 
     # Nous allons ajouter 2 autres variables pour stocker les parematres secrets
     AUTH_0_SECRET_ID: Auth0Secret-${self:provider.stage}
