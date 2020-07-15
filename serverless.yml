@@ -22,7 +22,10 @@ provider:
     IMAGES_TABLE: Images-${self:provider.stage}
     #variable d'environnement pour utilsier imageId comme Index de la table afin de faciliter les recherches
     IMAGE_ID_INDEX: ImageIdIndex
-    IMAGES_S3_BUCKET: serverless-cloud-udagram-images-${self:provider.stage}
+    #IMAGES_S3_BUCKET: serverless-cloud-udagram-images-${self:provider.stage} Bucket utilisé au depart
+
+    IMAGES_S3_BUCKET: serverless-cloud-udagram-images-ab4fe-${self:provider.stage} #New bucket
+   
     SIGNED_URL_EXPIRATION: 300
     CONNECTIONS_TABLE: Connections-${self:provider.stage}
 
@@ -108,6 +111,9 @@ functions:
     handler: src/lambda/auth/auth0Authorizer.handler
 
 
+  RS256Auth:
+    handler: src/lambda/auth/rs256Auth0Authorizer.handler
+
   GetGroups:
     handler: src/lambda/http/getGroups.handler
     events:
@@ -125,7 +131,8 @@ functions:
           path: groups
           cors: true
           # this allow to do Authorization by token
-          authorizer: Auth
+          #authorizer: Auth ici on utilise HS256
+          authorizer: RS256Auth #ici on utilise RS256 avec le fichier rs256Auth0Authorizer et la focntion déclarée dans ce fichier
           reqValidatorName: RequestBodyValidator
           documentation:
             summary: Create a new group
@@ -150,7 +157,8 @@ functions:
           path: groups/{groupId}/images
           cors: true
           # this allow to do Authorization by token
-          authorizer: Auth
+           #authorizer: Auth ici on utilise HS256
+          authorizer: RS256Auth #ici on utilise RS256 avec le fichier rs256Auth0Authorizer et la focntion déclarée dans ce fichier
           reqValidatorName: RequestBodyValidator
           documentation:
             summary: Create a new image

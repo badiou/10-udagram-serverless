@@ -3,6 +3,9 @@ import 'source-map-support/register'
 import * as AWS  from 'aws-sdk'
 import * as uuid from 'uuid'
 
+//cet import est ajouté pour utiliser le RS256
+import { getUserId } from '../../auth/utils'
+
 const docClient = new AWS.DynamoDB.DocumentClient()
 const groupsTable = process.env.GROUPS_TABLE
 
@@ -11,10 +14,20 @@ export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEven
   const itemId = uuid.v4()
 
   const parsedBody = JSON.parse(event.body)
+  //###############################################################################################
+  //Cette partie est ajoutée ssi on se décide d'utiliser l'authenfication avec RS256.. On ne stocke pas de token dans ce cadre.
+  
+  const authorization = event.headers.Authorization
+  const split = authorization.split(' ')
+  const jwtToken = split[1]
 
+  //###############################################################################################
+  
   const newItem = {
     id: itemId,
-    ...parsedBody
+    userId: getUserId(jwtToken), // cette ligne est ajoutée pour récupérer le userId en passant le token
+    ...parsedBody,
+   
   }
 
   await docClient.put({
